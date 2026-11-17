@@ -1,0 +1,88 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+variable "aws_region" {
+  description = "Regiao AWS onde as tabelas serao criadas."
+  type        = string
+}
+
+variable "table_prefix" {
+  description = "Prefixo das tabelas, incluindo o ambiente quando aplicavel."
+  type        = string
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+locals {
+  tables = {
+    usuarios = {
+      pk = "usuario_id"
+      sk = null
+    }
+    estabelecimentos = {
+      pk = "estabelecimento_id"
+      sk = null
+    }
+    cardapios = {
+      pk = "estabelecimento_id"
+      sk = null
+    }
+    produtos = {
+      pk = "estabelecimento_id"
+      sk = "produto_id"
+    }
+    happy_hours = {
+      pk = "estabelecimento_id"
+      sk = null
+    }
+    precos_happy_hour = {
+      pk = "versao_id"
+      sk = "produto_id"
+    }
+  }
+}
+
+resource "aws_dynamodb_table" "cardapio" {
+  for_each = local.tables
+
+  name         = "${var.table_prefix}-${each.key}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = each.value.pk
+  range_key    = each.value.sk
+
+  dynamic "attribute" {
+    for_each = toset(concat(
+      [each.value.pk],
+      each.value.sk == null ? [] : [each.value.sk],
+      each.key == "usuarios" ? ["estabelecimento_id"] : []
+    ))
+
+    content {
+      name = attribute.value
+      type = "S"
+    }
+  }
+
+  dynamic "global_secondary_index" {
+    for_each = each.key == "usuarios" ? [1] : []
+
+    content {
+      name            = "por_estabelecimento"
+      hash_key        = "estabelecimento_id"
+      range_key       = "usuario_id"
+      projection_type = "KEYS_ONLY"
+    }
+  }
+}
+
+output "dynamodb_table_names" {
+  value = { for key, table in aws_dynamodb_table.cardapio : key => table.name }
+}
